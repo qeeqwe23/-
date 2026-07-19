@@ -6,7 +6,9 @@ namespace WinFormsApp2
     internal static class DbHelper
     {
         private static readonly string ConnStr =
-            @"Data Source=.;Initial Catalog=BookSalesDB;Integrated Security=True;TrustServerCertificate=True";
+            Environment.GetEnvironmentVariable("BOOKSALES_CONN")
+            ?? Environment.GetEnvironmentVariable("BOOKSALES_CONN", EnvironmentVariableTarget.User)
+            ?? @"Data Source=.;Initial Catalog=BookSalesDB;Integrated Security=True;TrustServerCertificate=True";
 
         public static DataTable Query(string sql, params SqlParameter[] parameters)
         {
