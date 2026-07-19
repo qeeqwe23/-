@@ -6,7 +6,7 @@ namespace WinFormsApp2
     internal static class DbHelper
     {
         private static readonly string ConnStr =
-            @"Data Source=.\SQLEXPRESS;Initial Catalog=BookSalesDB;Integrated Security=True;TrustServerCertificate=True";
+            @"Data Source=.;Initial Catalog=BookSalesDB;Integrated Security=True;TrustServerCertificate=True";
 
         public static DataTable Query(string sql, params SqlParameter[] parameters)
         {
