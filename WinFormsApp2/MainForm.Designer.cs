@@ -10,89 +10,127 @@ namespace WinFormsApp2
             {
                 components.Dispose();
             }
+
             base.Dispose(disposing);
         }
 
         private void InitializeComponent()
         {
-            lblTitle = new Label();
-            btnBooks = new Button();
-            btnSale = new Button();
-            btnSaleQuery = new Button();
+            shell = new TableLayoutPanel();
+            headerPanel = new Panel();
             btnExit = new Button();
+            lblTitle = new Label();
+            lblSubtitle = new Label();
+            entryLayout = new TableLayoutPanel();
+            shell.SuspendLayout();
+            headerPanel.SuspendLayout();
             SuspendLayout();
+            // 
+            // shell
+            // 
+            shell.BackColor = Color.White;
+            shell.ColumnCount = 1;
+            shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            shell.Controls.Add(headerPanel, 0, 0);
+            shell.Controls.Add(entryLayout, 0, 1);
+            shell.Dock = DockStyle.Fill;
+            shell.Location = new Point(0, 0);
+            shell.Name = "shell";
+            shell.RowCount = 2;
+            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 150F));
+            shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            shell.Size = new Size(1180, 720);
+            shell.TabIndex = 0;
+            // 
+            // headerPanel
+            // 
+            headerPanel.BackColor = Color.White;
+            headerPanel.Controls.Add(btnExit);
+            headerPanel.Controls.Add(lblTitle);
+            headerPanel.Controls.Add(lblSubtitle);
+            headerPanel.Dock = DockStyle.Fill;
+            headerPanel.Location = new Point(0, 0);
+            headerPanel.Margin = new Padding(0);
+            headerPanel.Name = "headerPanel";
+            headerPanel.Padding = new Padding(56, 34, 56, 18);
+            headerPanel.Size = new Size(1180, 150);
+            headerPanel.TabIndex = 0;
+            // 
+            // btnExit
+            // 
+            btnExit.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnExit.BackColor = Color.White;
+            btnExit.FlatStyle = FlatStyle.Flat;
+            btnExit.Font = new Font("Microsoft YaHei UI", 10F);
+            btnExit.Location = new Point(1046, 48);
+            btnExit.Name = "btnExit";
+            btnExit.Size = new Size(78, 34);
+            btnExit.TabIndex = 2;
+            btnExit.Text = "退出";
+            btnExit.UseVisualStyleBackColor = false;
+            btnExit.Click += btnExit_Click;
             // 
             // lblTitle
             // 
             lblTitle.AutoSize = true;
-            lblTitle.Font = new Font("Microsoft YaHei UI", 20F, FontStyle.Bold);
-            lblTitle.Location = new Point(231, 70);
+            lblTitle.Font = new Font("Microsoft YaHei UI", 24F, FontStyle.Bold);
+            lblTitle.Location = new Point(56, 34);
             lblTitle.Name = "lblTitle";
-            lblTitle.Size = new Size(326, 45);
+            lblTitle.Size = new Size(424, 52);
             lblTitle.TabIndex = 0;
             lblTitle.Text = "图书销售管理系统";
             // 
-            // btnBooks
+            // lblSubtitle
             // 
-            btnBooks.Location = new Point(260, 165);
-            btnBooks.Name = "btnBooks";
-            btnBooks.Size = new Size(260, 42);
-            btnBooks.TabIndex = 1;
-            btnBooks.Text = "图书管理";
-            btnBooks.UseVisualStyleBackColor = true;
-            btnBooks.Click += btnBooks_Click;
+            lblSubtitle.AutoSize = true;
+            lblSubtitle.Font = new Font("Microsoft YaHei UI", 10.5F);
+            lblSubtitle.ForeColor = Color.FromArgb(80, 80, 80);
+            lblSubtitle.Location = new Point(60, 94);
+            lblSubtitle.Name = "lblSubtitle";
+            lblSubtitle.Size = new Size(408, 24);
+            lblSubtitle.TabIndex = 1;
+            lblSubtitle.Text = "把资料、库存、客户、订单和统计放回业务流程里";
             // 
-            // btnSale
+            // entryLayout
             // 
-            btnSale.Location = new Point(260, 225);
-            btnSale.Name = "btnSale";
-            btnSale.Size = new Size(260, 42);
-            btnSale.TabIndex = 2;
-            btnSale.Text = "销售出库";
-            btnSale.UseVisualStyleBackColor = true;
-            btnSale.Click += btnSale_Click;
-            // 
-            // btnSaleQuery
-            // 
-            btnSaleQuery.Location = new Point(260, 285);
-            btnSaleQuery.Name = "btnSaleQuery";
-            btnSaleQuery.Size = new Size(260, 42);
-            btnSaleQuery.TabIndex = 3;
-            btnSaleQuery.Text = "销售查询";
-            btnSaleQuery.UseVisualStyleBackColor = true;
-            btnSaleQuery.Click += btnSaleQuery_Click;
-            // 
-            // btnExit
-            // 
-            btnExit.Location = new Point(260, 345);
-            btnExit.Name = "btnExit";
-            btnExit.Size = new Size(260, 42);
-            btnExit.TabIndex = 4;
-            btnExit.Text = "退出系统";
-            btnExit.UseVisualStyleBackColor = true;
-            btnExit.Click += btnExit_Click;
+            entryLayout.BackColor = Color.White;
+            entryLayout.ColumnCount = 2;
+            entryLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            entryLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            entryLayout.Dock = DockStyle.Fill;
+            entryLayout.Location = new Point(40, 150);
+            entryLayout.Margin = new Padding(40, 0, 40, 40);
+            entryLayout.Name = "entryLayout";
+            entryLayout.RowCount = 2;
+            entryLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+            entryLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+            entryLayout.Size = new Size(1100, 530);
+            entryLayout.TabIndex = 1;
             // 
             // MainForm
             // 
             AutoScaleDimensions = new SizeF(9F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(800, 450);
-            Controls.Add(btnExit);
-            Controls.Add(btnSaleQuery);
-            Controls.Add(btnSale);
-            Controls.Add(btnBooks);
-            Controls.Add(lblTitle);
+            BackColor = Color.White;
+            ClientSize = new Size(1180, 720);
+            Controls.Add(shell);
+            Font = new Font("Microsoft YaHei UI", 10F);
+            MinimumSize = new Size(1040, 680);
             Name = "MainForm";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "主界面";
+            Text = "图书销售管理系统";
+            Load += MainForm_Load;
+            shell.ResumeLayout(false);
+            headerPanel.ResumeLayout(false);
+            headerPanel.PerformLayout();
             ResumeLayout(false);
-            PerformLayout();
         }
 
-        private Label lblTitle;
-        private Button btnBooks;
-        private Button btnSale;
-        private Button btnSaleQuery;
+        private TableLayoutPanel shell;
+        private Panel headerPanel;
         private Button btnExit;
+        private Label lblTitle;
+        private Label lblSubtitle;
+        private TableLayoutPanel entryLayout;
     }
 }
