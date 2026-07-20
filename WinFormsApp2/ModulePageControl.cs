@@ -9,6 +9,7 @@ namespace WinFormsApp2
         private readonly Dictionary<string, Control> inputs = new Dictionary<string, Control>();
         private readonly DataGridView grid = new DataGridView();
         private readonly FlowLayoutPanel fieldsPanel = new FlowLayoutPanel();
+        private readonly TextBox searchBox = new TextBox();
         private DataTable table = new DataTable();
 
         public ModulePageControl(ModuleDefinition module)
@@ -25,7 +26,8 @@ namespace WinFormsApp2
         public void Reload()
         {
             table = LoadTable();
-            grid.DataSource = table;
+            grid.DataSource = table.DefaultView;
+            ApplySearchFilter();
             HideSystemColumns();
         }
 
@@ -63,7 +65,7 @@ namespace WinFormsApp2
                 editPanel.Controls.Add(fieldsPanel);
                 editPanel.Controls.Add(CreateActionPanel());
                 editPanel.Controls.Add(CreateDescriptionLabel());
-                editPanel.Controls.Add(CreateTitleLabel("业务信息"));
+                editPanel.Controls.Add(CreateTitleLabel(module.EditTitle));
                 layout.Controls.Add(editPanel, 0, 0);
             }
 
@@ -75,7 +77,8 @@ namespace WinFormsApp2
             };
             ConfigureGrid();
             listPanel.Controls.Add(grid);
-            listPanel.Controls.Add(CreateTitleLabel("业务记录"));
+            listPanel.Controls.Add(CreateSearchPanel());
+            listPanel.Controls.Add(CreateTitleLabel(module.ListTitle));
 
             fieldsPanel.Dock = DockStyle.Fill;
             fieldsPanel.FlowDirection = FlowDirection.TopDown;
@@ -136,6 +139,58 @@ namespace WinFormsApp2
             panel.Controls.Add(btnDelete, 0, 1);
             panel.Controls.Add(btnClear, 1, 1);
             return panel;
+        }
+
+        private Panel CreateSearchPanel()
+        {
+            Panel panel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 46,
+                Padding = new Padding(0, 4, 0, 8),
+                BackColor = Color.White
+            };
+
+            FlowLayoutPanel row = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.White
+            };
+
+            searchBox.Width = 280;
+            searchBox.Height = 32;
+            searchBox.Margin = new Padding(0, 4, 8, 0);
+            searchBox.BorderStyle = BorderStyle.FixedSingle;
+            searchBox.KeyDown += searchBox_KeyDown;
+
+            Button btnSearch = CreateSearchButton("查询", btnSearch_Click);
+            Button btnReset = CreateSearchButton("全部", btnReset_Click);
+
+            row.Controls.Add(searchBox);
+            row.Controls.Add(btnSearch);
+            row.Controls.Add(btnReset);
+            panel.Controls.Add(row);
+            return panel;
+        }
+
+        private static Button CreateSearchButton(string text, EventHandler handler)
+        {
+            Button button = new Button
+            {
+                Width = 74,
+                Height = 32,
+                Margin = new Padding(0, 4, 8, 0),
+                Text = text,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.White,
+                ForeColor = Color.Black,
+                Font = new Font("Microsoft YaHei UI", 10F),
+                UseVisualStyleBackColor = false
+            };
+            button.Click += handler;
+            return button;
         }
 
         private static Button CreateActionButton(string text, EventHandler handler)
@@ -224,14 +279,15 @@ namespace WinFormsApp2
                 };
             }
 
-            if (field.Contains("状态") || field.Contains("类型") || field.Contains("等级") || field.Contains("结果"))
+            string[] options = GetOptions(field);
+            if (options.Length > 0)
             {
                 ComboBox comboBox = new ComboBox
                 {
                     Height = 32,
                     DropDownStyle = ComboBoxStyle.DropDownList
                 };
-                comboBox.Items.AddRange(new object[] { "正常", "待处理", "已完成", "已取消" });
+                comboBox.Items.AddRange(options);
                 comboBox.SelectedIndex = 0;
                 return comboBox;
             }
@@ -242,6 +298,25 @@ namespace WinFormsApp2
                 Multiline = IsLongTextField(field),
                 ScrollBars = IsLongTextField(field) ? ScrollBars.Vertical : ScrollBars.None,
                 BorderStyle = BorderStyle.FixedSingle
+            };
+        }
+
+        private static string[] GetOptions(string field)
+        {
+            return field switch
+            {
+                "分类" => new[] { "计算机", "文学", "教育", "历史", "经济管理", "少儿读物", "艺术设计", "外语学习", "生活健康", "科技科普" },
+                "销售状态" => new[] { "正常销售", "暂不上架", "已下架" },
+                "入库状态" => new[] { "待入库", "部分入库", "已入库" },
+                "出库类型" => new[] { "销售出库", "损坏出库", "盘点调整", "其他出库" },
+                "会员等级" => new[] { "普通会员", "银卡会员", "金卡会员" },
+                "订单状态" => new[] { "待支付", "待发货", "已发货", "已完成", "已取消", "已退货" },
+                "支付方式" => new[] { "微信支付", "支付宝", "银行卡", "现金" },
+                "支付状态" => new[] { "未支付", "已支付", "已退款", "已取消" },
+                "发货状态" => new[] { "未发货", "待发货", "已发货", "配送中", "已签收" },
+                "审核状态" => new[] { "待审核", "已通过", "已完成", "已拒绝" },
+                "类型" => new[] { "作者", "出版社" },
+                _ => Array.Empty<string>()
             };
         }
 
@@ -327,6 +402,26 @@ namespace WinFormsApp2
         private void btnClear_Click(object? sender, EventArgs e)
         {
             ClearInputs();
+        }
+
+        private void btnSearch_Click(object? sender, EventArgs e)
+        {
+            ApplySearchFilter();
+        }
+
+        private void btnReset_Click(object? sender, EventArgs e)
+        {
+            searchBox.Text = string.Empty;
+            ApplySearchFilter();
+        }
+
+        private void searchBox_KeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                ApplySearchFilter();
+                e.SuppressKeyPress = true;
+            }
         }
 
         private void grid_CellClick(object? sender, DataGridViewCellEventArgs e)
@@ -491,6 +586,34 @@ namespace WinFormsApp2
             {
                 grid.Columns["Id"].Visible = false;
             }
+        }
+
+        private void ApplySearchFilter()
+        {
+            if (table.Columns.Count == 0)
+            {
+                return;
+            }
+
+            string keyword = EscapeFilterValue(searchBox.Text.Trim());
+            if (string.IsNullOrWhiteSpace(keyword))
+            {
+                table.DefaultView.RowFilter = string.Empty;
+                return;
+            }
+
+            string[] filters = table.Columns
+                .Cast<DataColumn>()
+                .Where(column => !string.Equals(column.ColumnName, module.KeyColumn, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(column.ColumnName, "Id", StringComparison.OrdinalIgnoreCase))
+                .Select(column => $"CONVERT([{column.ColumnName}], 'System.String') LIKE '%{keyword}%'")
+                .ToArray();
+            table.DefaultView.RowFilter = string.Join(" OR ", filters);
+        }
+
+        private static string EscapeFilterValue(string value)
+        {
+            return value.Replace("'", "''").Replace("[", "[[]").Replace("%", "[%]").Replace("*", "[*]");
         }
 
         private void ClearInputs()

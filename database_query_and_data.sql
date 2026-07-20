@@ -17,6 +17,13 @@ GO
 USE BookSalesDB;
 GO
 
+IF OBJECT_ID(N'trg_BookPrices_Cascade', N'TR') IS NOT NULL DROP TRIGGER trg_BookPrices_Cascade;
+IF OBJECT_ID(N'trg_BookShelf_Cascade', N'TR') IS NOT NULL DROP TRIGGER trg_BookShelf_Cascade;
+IF OBJECT_ID(N'trg_BookInbound_Cascade', N'TR') IS NOT NULL DROP TRIGGER trg_BookInbound_Cascade;
+IF OBJECT_ID(N'trg_BookInbound_NameSync', N'TR') IS NOT NULL DROP TRIGGER trg_BookInbound_NameSync;
+IF OBJECT_ID(N'trg_BookOutbound_NameSync', N'TR') IS NOT NULL DROP TRIGGER trg_BookOutbound_NameSync;
+GO
+
 IF OBJECT_ID(N'Users', N'U') IS NULL
 BEGIN
     CREATE TABLE Users (
@@ -35,6 +42,7 @@ BEGIN
         BookCode NVARCHAR(30) NULL,
         ISBN NVARCHAR(30) NULL,
         BookName NVARCHAR(100) NOT NULL,
+        CategoryName NVARCHAR(50) NULL,
         Author NVARCHAR(50) NOT NULL,
         Publisher NVARCHAR(100) NULL,
         PublishedDate DATE NULL,
@@ -57,6 +65,12 @@ GO
 IF COL_LENGTH('dbo.Books', 'ISBN') IS NULL
 BEGIN
     ALTER TABLE dbo.Books ADD ISBN NVARCHAR(30) NULL;
+END
+GO
+
+IF COL_LENGTH('dbo.Books', 'CategoryName') IS NULL
+BEGIN
+    ALTER TABLE dbo.Books ADD CategoryName NVARCHAR(50) NULL;
 END
 GO
 
@@ -470,9 +484,9 @@ IF NOT EXISTS (SELECT 1 FROM BookShelfRecords)
 BEGIN
     INSERT INTO BookShelfRecords(BookCode, BookName, SaleStatus, OnSaleTime, OffSaleTime, OffSaleReason)
     VALUES
-    (N'B001', N'C# 程序设计教程', N'正常', DATEADD(DAY, -30, GETDATE()), NULL, NULL),
-    (N'B002', N'SQL Server 数据库应用', N'正常', DATEADD(DAY, -28, GETDATE()), NULL, NULL),
-    (N'B003', N'ASP.NET Core Web 开发', N'待处理', DATEADD(DAY, -10, GETDATE()), NULL, N'等待活动定价确认');
+    (N'B001', N'C# 程序设计教程', N'正常销售', DATEADD(DAY, -30, GETDATE()), NULL, NULL),
+    (N'B002', N'SQL Server 数据库应用', N'正常销售', DATEADD(DAY, -28, GETDATE()), NULL, NULL),
+    (N'B003', N'ASP.NET Core Web 开发', N'暂不上架', DATEADD(DAY, -10, GETDATE()), NULL, N'等待活动定价确认');
 END
 GO
 
@@ -518,9 +532,9 @@ IF NOT EXISTS (SELECT 1 FROM InventoryChecks)
 BEGIN
     INSERT INTO InventoryChecks(CheckNo, BookCode, BookName, SystemStock, ActualStock, CheckResult, CheckDate)
     VALUES
-    (N'PD20260719001', N'B001', N'C# 程序设计教程', 40, 40, N'正常', GETDATE()),
-    (N'PD20260719002', N'B002', N'SQL Server 数据库应用', 35, 34, N'盘亏', GETDATE()),
-    (N'PD20260719003', N'B008', N'Python 编程基础', 45, 47, N'盘盈', GETDATE());
+    (N'PD20260719001', N'B001', N'C# 程序设计教程', 40, 40, N'实际数量和系统一致', GETDATE()),
+    (N'PD20260719002', N'B002', N'SQL Server 数据库应用', 35, 34, N'实际库存少了 1 本', GETDATE()),
+    (N'PD20260719003', N'B008', N'Python 编程基础', 45, 47, N'实际库存多了 2 本', GETDATE());
 END
 GO
 
@@ -741,7 +755,7 @@ BEGIN
     SELECT
         i.BookCode,
         i.BookName,
-        CASE WHEN i.IsOnSale = 1 THEN N'正常' ELSE N'已下架' END,
+        CASE WHEN i.IsOnSale = 1 THEN N'正常销售' ELSE N'已下架' END,
         CASE WHEN i.IsOnSale = 1 THEN GETDATE() ELSE NULL END
     FROM inserted i
     WHERE ISNULL(i.BookCode, N'') <> N''
@@ -757,7 +771,11 @@ BEGIN
 
     UPDATE target SET
         target.BookName = i.BookName,
-        target.SaleStatus = CASE WHEN i.IsOnSale = 1 THEN N'正常' ELSE N'已下架' END,
+        target.SaleStatus = CASE
+            WHEN i.IsOnSale = 1 THEN N'正常销售'
+            WHEN target.SaleStatus = N'暂不上架' THEN N'暂不上架'
+            ELSE N'已下架'
+        END,
         target.OffSaleTime = CASE WHEN i.IsOnSale = 0 AND target.OffSaleTime IS NULL THEN GETDATE() ELSE target.OffSaleTime END
     FROM BookShelfRecords target
     INNER JOIN inserted i ON target.BookCode = i.BookCode;
@@ -964,7 +982,7 @@ WHERE ISNULL(BookCode, N'') <> N''
 GO
 
 INSERT INTO BookShelfRecords(BookCode, BookName, SaleStatus, OnSaleTime)
-SELECT BookCode, BookName, CASE WHEN IsOnSale = 1 THEN N'正常' ELSE N'已下架' END, CASE WHEN IsOnSale = 1 THEN GETDATE() ELSE NULL END
+SELECT BookCode, BookName, CASE WHEN IsOnSale = 1 THEN N'正常销售' ELSE N'已下架' END, CASE WHEN IsOnSale = 1 THEN GETDATE() ELSE NULL END
 FROM Books b
 WHERE ISNULL(BookCode, N'') <> N''
   AND NOT EXISTS (SELECT 1 FROM BookShelfRecords s WHERE s.BookCode = b.BookCode);
@@ -1077,16 +1095,15 @@ AFTER INSERT, UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
     UPDATE r
     SET r.RefundAmount =
-        CASE
-            WHEN r.RefundAmount = 0 THEN ISNULL(d.UnitPrice, 0) * r.ReturnQuantity
-            ELSE r.RefundAmount
-        END
+        ISNULL(d.UnitPrice, 0) * r.ReturnQuantity
     FROM ReturnRefunds r
     INNER JOIN inserted i ON r.Id = i.Id
-    LEFT JOIN OrderDetails d ON r.OrderNo = d.OrderNo AND r.BookCode = d.BookCode;
+    LEFT JOIN OrderDetails d ON r.OrderNo = d.OrderNo AND r.BookCode = d.BookCode
+    WHERE r.RefundAmount = 0;
 
     UPDATE o
     SET o.OrderStatus = N'已退货'
@@ -1417,7 +1434,7 @@ IF NOT EXISTS (
     WHERE t.name = N'InventoryChecks' AND c.name = N'CheckResult'
 )
 BEGIN
-    ALTER TABLE InventoryChecks ADD CONSTRAINT DF_InventoryChecks_CheckResult DEFAULT (N'正常') FOR CheckResult;
+    ALTER TABLE InventoryChecks ADD CONSTRAINT DF_InventoryChecks_CheckResult DEFAULT (N'实际数量和系统一致') FOR CheckResult;
 END
 GO
 
@@ -1481,12 +1498,14 @@ AFTER INSERT, UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
     UPDATE p
     SET p.BookName = b.BookName
     FROM BookPrices p
     INNER JOIN inserted i ON p.Id = i.Id
-    INNER JOIN Books b ON p.BookCode = b.BookCode;
+    INNER JOIN Books b ON p.BookCode = b.BookCode
+    WHERE ISNULL(p.BookName, N'') <> ISNULL(b.BookName, N'');
 
     UPDATE b
     SET b.Price = i.SalePrice
@@ -1508,18 +1527,23 @@ AFTER INSERT, UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
     UPDATE s
-    SET s.BookName = b.BookName
+    SET
+        s.BookName = b.BookName,
+        s.OffSaleReason = CASE WHEN i.SaleStatus = N'正常销售' THEN NULL ELSE s.OffSaleReason END
     FROM BookShelfRecords s
     INNER JOIN inserted i ON s.Id = i.Id
-    INNER JOIN Books b ON s.BookCode = b.BookCode;
+    INNER JOIN Books b ON s.BookCode = b.BookCode
+    WHERE ISNULL(s.BookName, N'') <> ISNULL(b.BookName, N'')
+       OR (i.SaleStatus = N'正常销售' AND s.OffSaleReason IS NOT NULL);
 
     UPDATE b
-    SET b.IsOnSale = CASE WHEN i.SaleStatus = N'正常' THEN 1 ELSE 0 END
+    SET b.IsOnSale = CASE WHEN i.SaleStatus = N'正常销售' THEN 1 ELSE 0 END
     FROM Books b
     INNER JOIN inserted i ON b.BookCode = i.BookCode
-    WHERE b.IsOnSale <> CASE WHEN i.SaleStatus = N'正常' THEN 1 ELSE 0 END;
+    WHERE b.IsOnSale <> CASE WHEN i.SaleStatus = N'正常销售' THEN 1 ELSE 0 END;
 END
 GO
 
@@ -1535,12 +1559,14 @@ AFTER INSERT, UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
     UPDATE p
     SET p.BookName = b.BookName
     FROM PurchaseOrders p
     INNER JOIN inserted i ON p.Id = i.Id
-    INNER JOIN Books b ON p.BookCode = b.BookCode;
+    INNER JOIN Books b ON p.BookCode = b.BookCode
+    WHERE ISNULL(p.BookName, N'') <> ISNULL(b.BookName, N'');
 END
 GO
 
@@ -1586,6 +1612,10 @@ BEGIN
 END
 GO
 
+IF OBJECT_ID(N'trg_BookInbound_NameSync', N'TR') IS NOT NULL DROP TRIGGER trg_BookInbound_NameSync;
+IF OBJECT_ID(N'trg_BookOutbound_NameSync', N'TR') IS NOT NULL DROP TRIGGER trg_BookOutbound_NameSync;
+GO
+
 IF OBJECT_ID(N'trg_InventoryChecks_Cascade', N'TR') IS NOT NULL
 BEGIN
     DROP TRIGGER trg_InventoryChecks_Cascade;
@@ -1598,18 +1628,419 @@ AFTER INSERT, UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
     UPDATE c
     SET
         c.BookName = b.BookName,
         c.SystemStock = b.Stock,
         c.CheckResult = CASE
-            WHEN c.ActualStock > b.Stock THEN N'盘盈'
-            WHEN c.ActualStock < b.Stock THEN N'盘亏'
-            ELSE N'正常'
+            WHEN c.ActualStock > b.Stock THEN N'实际库存多了 ' + CONVERT(NVARCHAR(20), c.ActualStock - b.Stock) + N' 本'
+            WHEN c.ActualStock < b.Stock THEN N'实际库存少了 ' + CONVERT(NVARCHAR(20), b.Stock - c.ActualStock) + N' 本'
+            ELSE N'实际数量和系统一致'
         END
     FROM InventoryChecks c
     INNER JOIN inserted i ON c.Id = i.Id
-    INNER JOIN Books b ON c.BookCode = b.BookCode;
+    INNER JOIN Books b ON c.BookCode = b.BookCode
+    WHERE ISNULL(c.BookName, N'') <> ISNULL(b.BookName, N'')
+       OR c.SystemStock <> b.Stock
+       OR c.CheckResult <> CASE
+            WHEN c.ActualStock > b.Stock THEN N'实际库存多了 ' + CONVERT(NVARCHAR(20), c.ActualStock - b.Stock) + N' 本'
+            WHEN c.ActualStock < b.Stock THEN N'实际库存少了 ' + CONVERT(NVARCHAR(20), b.Stock - c.ActualStock) + N' 本'
+            ELSE N'实际数量和系统一致'
+        END;
 END
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.default_constraints dc
+    INNER JOIN sys.columns c ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id
+    INNER JOIN sys.tables t ON c.object_id = t.object_id
+    WHERE t.name = N'BookInboundRecords' AND c.name = N'BookCode'
+)
+BEGIN
+    ALTER TABLE BookInboundRecords ADD CONSTRAINT DF_BookInboundRecords_BookCode DEFAULT (N'') FOR BookCode;
+END
+GO
+
+IF OBJECT_ID(N'trg_BookInbound_Cascade', N'TR') IS NOT NULL
+BEGIN
+    DROP TRIGGER trg_BookInbound_Cascade;
+END
+GO
+
+CREATE TRIGGER trg_BookInbound_Cascade
+ON BookInboundRecords
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
+
+    UPDATE r
+    SET
+        r.BookCode = COALESCE(NULLIF(i.BookCode, N''), p.BookCode, r.BookCode),
+        r.BookName = COALESCE(NULLIF(i.BookName, N''), p.BookName, b.BookName, r.BookName)
+    FROM BookInboundRecords r
+    INNER JOIN inserted i ON r.Id = i.Id
+    LEFT JOIN PurchaseOrders p ON i.PurchaseNo = p.PurchaseNo
+    LEFT JOIN Books b ON COALESCE(NULLIF(i.BookCode, N''), p.BookCode) = b.BookCode
+    WHERE ISNULL(r.BookCode, N'') <> ISNULL(COALESCE(NULLIF(i.BookCode, N''), p.BookCode, r.BookCode), N'')
+       OR ISNULL(r.BookName, N'') <> ISNULL(COALESCE(NULLIF(i.BookName, N''), p.BookName, b.BookName, r.BookName), N'');
+
+    WITH changes AS (
+        SELECT COALESCE(NULLIF(i.BookCode, N''), p.BookCode) AS BookCode, SUM(i.InboundQuantity) AS Quantity
+        FROM inserted i
+        LEFT JOIN PurchaseOrders p ON i.PurchaseNo = p.PurchaseNo
+        GROUP BY COALESCE(NULLIF(i.BookCode, N''), p.BookCode)
+        UNION ALL
+        SELECT COALESCE(NULLIF(d.BookCode, N''), p.BookCode) AS BookCode, -SUM(d.InboundQuantity)
+        FROM deleted d
+        LEFT JOIN PurchaseOrders p ON d.PurchaseNo = p.PurchaseNo
+        GROUP BY COALESCE(NULLIF(d.BookCode, N''), p.BookCode)
+    ),
+    totalChanges AS (
+        SELECT BookCode, SUM(Quantity) AS Quantity
+        FROM changes
+        WHERE ISNULL(BookCode, N'') <> N''
+        GROUP BY BookCode
+    )
+    UPDATE b
+    SET b.Stock = CASE WHEN b.Stock + c.Quantity < 0 THEN 0 ELSE b.Stock + c.Quantity END
+    FROM Books b
+    INNER JOIN totalChanges c ON b.BookCode = c.BookCode;
+
+    WITH changedPurchases AS (
+        SELECT PurchaseNo FROM inserted WHERE PurchaseNo IS NOT NULL
+        UNION
+        SELECT PurchaseNo FROM deleted WHERE PurchaseNo IS NOT NULL
+    )
+    UPDATE p
+    SET p.PurchaseStatus = CASE
+        WHEN ISNULL(total.InboundQuantity, 0) <= 0 THEN N'待入库'
+        WHEN ISNULL(total.InboundQuantity, 0) < p.Quantity THEN N'部分入库'
+        ELSE N'已入库'
+    END
+    FROM PurchaseOrders p
+    INNER JOIN changedPurchases changed ON p.PurchaseNo = changed.PurchaseNo
+    OUTER APPLY (
+        SELECT SUM(r.InboundQuantity) AS InboundQuantity
+        FROM BookInboundRecords r
+        WHERE r.PurchaseNo = p.PurchaseNo
+    ) total;
+END
+GO
+
+IF OBJECT_ID(N'trg_Delivery_Cascade', N'TR') IS NOT NULL
+BEGIN
+    DROP TRIGGER trg_Delivery_Cascade;
+END
+GO
+
+CREATE TRIGGER trg_Delivery_Cascade
+ON OrderDeliveries
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE o
+    SET o.OrderStatus =
+        CASE
+            WHEN i.DeliveryStatus IN (N'已签收', N'已完成') THEN N'已完成'
+            WHEN i.DeliveryStatus IN (N'已发货', N'配送中') THEN N'已发货'
+            ELSE o.OrderStatus
+        END
+    FROM SaleOrders o
+    INNER JOIN inserted i ON o.OrderNo = i.OrderNo
+    WHERE o.OrderStatus <> N'已取消';
+
+    INSERT INTO BookOutboundRecords(OutboundNo, BookCode, BookName, OutboundType, OutboundQuantity, OutboundTime, Reason)
+    SELECT
+        N'XSCK' + CONVERT(NVARCHAR(12), i.Id) + N'-' + CONVERT(NVARCHAR(12), d.Id),
+        d.BookCode,
+        d.BookName,
+        N'销售出库',
+        d.Quantity,
+        ISNULL(i.DeliveryTime, GETDATE()),
+        N'订单 ' + i.OrderNo + N' 发货'
+    FROM inserted i
+    INNER JOIN OrderDetails d ON i.OrderNo = d.OrderNo
+    WHERE i.DeliveryStatus IN (N'已发货', N'配送中', N'已签收', N'已完成')
+      AND NOT EXISTS (
+          SELECT 1
+          FROM BookOutboundRecords r
+          WHERE r.OutboundNo = N'XSCK' + CONVERT(NVARCHAR(12), i.Id) + N'-' + CONVERT(NVARCHAR(12), d.Id)
+      );
+END
+GO
+
+INSERT INTO BookCategories(CategoryCode, CategoryName, ParentCategory, Description)
+SELECT v.CategoryCode, v.CategoryName, NULL, v.Description
+FROM (VALUES
+    (N'CAT005', N'经济管理', N'财务、管理、市场营销类图书'),
+    (N'CAT006', N'少儿读物', N'儿童阅读、启蒙和科普类图书'),
+    (N'CAT007', N'艺术设计', N'美术、设计、摄影类图书'),
+    (N'CAT008', N'外语学习', N'英语、日语和语言考试类图书'),
+    (N'CAT009', N'生活健康', N'生活方式、运动和健康类图书'),
+    (N'CAT010', N'科技科普', N'科学技术和大众科普类图书')
+) AS v(CategoryCode, CategoryName, Description)
+WHERE NOT EXISTS (SELECT 1 FROM BookCategories c WHERE c.CategoryCode = v.CategoryCode);
+GO
+
+UPDATE Books SET CategoryName = N'计算机' WHERE BookCode IN (N'B001', N'B002', N'B003', N'B004', N'B005', N'B006', N'B007', N'B008', N'B009', N'B010');
+GO
+
+INSERT INTO Books(BookCode, ISBN, BookName, CategoryName, Author, Publisher, PublishedDate, Description, Price, Stock, MinStock, IsOnSale)
+SELECT v.BookCode, v.ISBN, v.BookName, v.CategoryName, v.Author, v.Publisher, v.PublishedDate, v.Description, v.Price, v.Stock, v.MinStock, v.IsOnSale
+FROM (VALUES
+    (N'B011', N'9787020000111', N'现代文学精选', N'文学', N'林晓', N'人民文学出版社', CONVERT(DATE, '2021-04-18'), N'现代文学阅读选本', 39.00, 18, 6, 1),
+    (N'B012', N'9787100000122', N'中国通史简明读本', N'历史', N'许明', N'中华书局', CONVERT(DATE, '2020-10-01'), N'适合入门阅读的中国史读本', 52.00, 12, 8, 1),
+    (N'B013', N'9787300000133', N'教育心理学基础', N'教育', N'韩梅', N'北京师范大学出版社', CONVERT(DATE, '2022-09-10'), N'教育学与心理学基础教材', 48.00, 16, 10, 1),
+    (N'B014', N'9787500000144', N'市场营销实务', N'经济管理', N'周航', N'中国财政经济出版社', CONVERT(DATE, '2023-02-15'), N'营销案例与实务操作', 68.00, 9, 12, 1),
+    (N'B015', N'9787550000155', N'少儿科学故事', N'少儿读物', N'叶青青', N'接力出版社', CONVERT(DATE, '2024-05-01'), N'面向小学生的科学故事', 32.00, 7, 10, 1),
+    (N'B016', N'9787530000166', N'平面设计入门', N'艺术设计', N'顾南', N'上海人民美术出版社', CONVERT(DATE, '2022-07-20'), N'设计基础与案例', 59.00, 11, 8, 1),
+    (N'B017', N'9787560000177', N'大学英语阅读训练', N'外语学习', N'赵琳', N'外语教学与研究出版社', CONVERT(DATE, '2021-12-05'), N'大学英语阅读训练资料', 42.00, 22, 10, 1),
+    (N'B018', N'9787110000188', N'人工智能科普导读', N'科技科普', N'沈越', N'机械工业出版社', CONVERT(DATE, '2024-03-01'), N'人工智能概念与应用科普', 76.00, 6, 12, 1)
+) AS v(BookCode, ISBN, BookName, CategoryName, Author, Publisher, PublishedDate, Description, Price, Stock, MinStock, IsOnSale)
+WHERE NOT EXISTS (SELECT 1 FROM Books b WHERE b.BookCode = v.BookCode);
+GO
+
+UPDATE b
+SET
+    b.CategoryName = v.CategoryName,
+    b.Price = v.Price,
+    b.MinStock = v.MinStock,
+    b.IsOnSale = v.IsOnSale
+FROM Books b
+INNER JOIN (VALUES
+    (N'B011', N'文学', 39.00, 6, 1),
+    (N'B012', N'历史', 52.00, 8, 1),
+    (N'B013', N'教育', 48.00, 10, 1),
+    (N'B014', N'经济管理', 68.00, 12, 1),
+    (N'B015', N'少儿读物', 32.00, 10, 1),
+    (N'B016', N'艺术设计', 59.00, 8, 1),
+    (N'B017', N'外语学习', 42.00, 10, 1),
+    (N'B018', N'科技科普', 76.00, 12, 1)
+) AS v(BookCode, CategoryName, Price, MinStock, IsOnSale) ON b.BookCode = v.BookCode;
+GO
+
+INSERT INTO Customers(CustomerCode, CustomerName, Phone, Address, MemberLevel, RegisterDate, Remark)
+SELECT v.CustomerCode, v.CustomerName, v.Phone, v.Address, v.MemberLevel, GETDATE(), N'补充演示客户'
+FROM (VALUES
+    (N'C003', N'王芳', N'13900000003', N'广州市天河区', N'金卡会员'),
+    (N'C004', N'赵强', N'13900000004', N'深圳市南山区', N'普通会员'),
+    (N'C005', N'刘敏', N'13900000005', N'杭州市西湖区', N'银卡会员'),
+    (N'C006', N'陈杰', N'13900000006', N'成都市武侯区', N'金卡会员'),
+    (N'C007', N'孙丽', N'13900000007', N'南京市鼓楼区', N'普通会员'),
+    (N'C008', N'周宁', N'13900000008', N'武汉市洪山区', N'银卡会员')
+) AS v(CustomerCode, CustomerName, Phone, Address, MemberLevel)
+WHERE NOT EXISTS (SELECT 1 FROM Customers c WHERE c.CustomerCode = v.CustomerCode);
+GO
+
+INSERT INTO PurchaseOrders(PurchaseNo, BookCode, BookName, Quantity, PurchasePrice, Supplier, PurchaseDate, PurchaseStatus)
+SELECT v.PurchaseNo, v.BookCode, b.BookName, v.Quantity, v.PurchasePrice, v.Supplier, v.PurchaseDate, N'待入库'
+FROM (VALUES
+    (N'CG20260720001', N'B014', 20, 45.00, N'北京文轩图书供应中心', CONVERT(DATE, GETDATE())),
+    (N'CG20260720002', N'B015', 30, 18.00, N'上海智源教材批发部', CONVERT(DATE, GETDATE())),
+    (N'CG20260720003', N'B018', 25, 52.00, N'北京文轩图书供应中心', CONVERT(DATE, GETDATE())),
+    (N'CG20260720004', N'B012', 15, 34.00, N'上海智源教材批发部', DATEADD(DAY, -2, CONVERT(DATE, GETDATE())))
+) AS v(PurchaseNo, BookCode, Quantity, PurchasePrice, Supplier, PurchaseDate)
+INNER JOIN Books b ON v.BookCode = b.BookCode
+WHERE NOT EXISTS (SELECT 1 FROM PurchaseOrders p WHERE p.PurchaseNo = v.PurchaseNo);
+GO
+
+INSERT INTO BookInboundRecords(InboundNo, PurchaseNo, BookCode, BookName, InboundQuantity, InboundTime, OperatorName)
+SELECT v.InboundNo, v.PurchaseNo, p.BookCode, p.BookName, v.InboundQuantity, GETDATE(), N'管理员'
+FROM (VALUES
+    (N'RK20260720001', N'CG20260720001', 20),
+    (N'RK20260720002', N'CG20260720002', 12),
+    (N'RK20260720003', N'CG20260720004', 15)
+) AS v(InboundNo, PurchaseNo, InboundQuantity)
+INNER JOIN PurchaseOrders p ON v.PurchaseNo = p.PurchaseNo
+WHERE NOT EXISTS (SELECT 1 FROM BookInboundRecords r WHERE r.InboundNo = v.InboundNo);
+GO
+
+INSERT INTO SaleOrders(OrderNo, CustomerCode, CustomerName, OrderTime, OrderStatus, OrderAmount, CancelReason)
+SELECT v.OrderNo, v.CustomerCode, c.CustomerName, v.OrderTime, v.OrderStatus, 0, v.CancelReason
+FROM (VALUES
+    (N'DD20260720004', N'C003', DATEADD(HOUR, -2, GETDATE()), N'已完成', CAST(NULL AS NVARCHAR(200))),
+    (N'DD20260720005', N'C004', DATEADD(DAY, -2, GETDATE()), N'已完成', CAST(NULL AS NVARCHAR(200))),
+    (N'DD20260720006', N'C005', DATEADD(DAY, -5, GETDATE()), N'已发货', CAST(NULL AS NVARCHAR(200))),
+    (N'DD20260720007', N'C006', DATEADD(DAY, -8, GETDATE()), N'待发货', CAST(NULL AS NVARCHAR(200))),
+    (N'DD20260720008', N'C003', DATEADD(DAY, -16, GETDATE()), N'已退货', CAST(NULL AS NVARCHAR(200))),
+    (N'DD20260720009', N'C007', DATEADD(DAY, -35, GETDATE()), N'已完成', CAST(NULL AS NVARCHAR(200))),
+    (N'DD20260720010', N'C008', DATEADD(DAY, -60, GETDATE()), N'已取消', N'客户修改采购计划')
+) AS v(OrderNo, CustomerCode, OrderTime, OrderStatus, CancelReason)
+INNER JOIN Customers c ON v.CustomerCode = c.CustomerCode
+WHERE NOT EXISTS (SELECT 1 FROM SaleOrders o WHERE o.OrderNo = v.OrderNo);
+GO
+
+INSERT INTO OrderDetails(DetailNo, OrderNo, BookCode, BookName, Quantity, UnitPrice, Discount)
+SELECT v.DetailNo, v.OrderNo, v.BookCode, b.BookName, v.Quantity, b.Price, v.Discount
+FROM (VALUES
+    (N'MX20260720004', N'DD20260720004', N'B008', 2, 1.00),
+    (N'MX20260720005', N'DD20260720004', N'B018', 1, 0.95),
+    (N'MX20260720006', N'DD20260720005', N'B011', 3, 1.00),
+    (N'MX20260720007', N'DD20260720005', N'B012', 1, 1.00),
+    (N'MX20260720008', N'DD20260720006', N'B014', 2, 0.90),
+    (N'MX20260720009', N'DD20260720007', N'B015', 4, 1.00),
+    (N'MX20260720010', N'DD20260720008', N'B002', 1, 1.00),
+    (N'MX20260720011', N'DD20260720009', N'B017', 5, 0.95),
+    (N'MX20260720012', N'DD20260720010', N'B013', 1, 1.00)
+) AS v(DetailNo, OrderNo, BookCode, Quantity, Discount)
+INNER JOIN Books b ON v.BookCode = b.BookCode
+WHERE NOT EXISTS (SELECT 1 FROM OrderDetails d WHERE d.DetailNo = v.DetailNo);
+GO
+
+INSERT INTO Payments(PaymentNo, OrderNo, PaymentMethod, PaymentAmount, PaymentTime, PaymentStatus, TransactionNo)
+SELECT v.PaymentNo, v.OrderNo, v.PaymentMethod, o.OrderAmount, v.PaymentTime, v.PaymentStatus, v.TransactionNo
+FROM (VALUES
+    (N'ZF20260720004', N'DD20260720004', N'微信支付', DATEADD(HOUR, -1, GETDATE()), N'已支付', N'WX202607200004'),
+    (N'ZF20260720005', N'DD20260720005', N'支付宝', DATEADD(DAY, -2, GETDATE()), N'已支付', N'ALI202607200005'),
+    (N'ZF20260720006', N'DD20260720006', N'银行卡', DATEADD(DAY, -5, GETDATE()), N'已支付', N'BANK202607200006'),
+    (N'ZF20260720007', N'DD20260720007', N'微信支付', DATEADD(DAY, -8, GETDATE()), N'已支付', N'WX202607200007'),
+    (N'ZF20260720008', N'DD20260720008', N'支付宝', DATEADD(DAY, -16, GETDATE()), N'已退款', N'ALI202607200008'),
+    (N'ZF20260720009', N'DD20260720009', N'微信支付', DATEADD(DAY, -35, GETDATE()), N'已支付', N'WX202607200009')
+) AS v(PaymentNo, OrderNo, PaymentMethod, PaymentTime, PaymentStatus, TransactionNo)
+INNER JOIN SaleOrders o ON v.OrderNo = o.OrderNo
+WHERE NOT EXISTS (SELECT 1 FROM Payments p WHERE p.PaymentNo = v.PaymentNo);
+GO
+
+INSERT INTO OrderDeliveries(DeliveryNo, OrderNo, ReceiverAddress, LogisticsCompany, LogisticsNo, DeliveryTime, DeliveryStatus)
+SELECT v.DeliveryNo, v.OrderNo, c.Address, v.LogisticsCompany, v.LogisticsNo, v.DeliveryTime, v.DeliveryStatus
+FROM (VALUES
+    (N'FH20260720004', N'DD20260720004', N'顺丰速运', N'SF202607200004', GETDATE(), N'已签收'),
+    (N'FH20260720005', N'DD20260720005', N'中通快递', N'ZT202607200005', DATEADD(DAY, -1, GETDATE()), N'已签收'),
+    (N'FH20260720006', N'DD20260720006', N'顺丰速运', N'SF202607200006', DATEADD(DAY, -4, GETDATE()), N'已发货'),
+    (N'FH20260720009', N'DD20260720009', N'圆通快递', N'YT202607200009', DATEADD(DAY, -34, GETDATE()), N'已签收')
+) AS v(DeliveryNo, OrderNo, LogisticsCompany, LogisticsNo, DeliveryTime, DeliveryStatus)
+INNER JOIN SaleOrders o ON v.OrderNo = o.OrderNo
+INNER JOIN Customers c ON o.CustomerCode = c.CustomerCode
+WHERE NOT EXISTS (SELECT 1 FROM OrderDeliveries d WHERE d.DeliveryNo = v.DeliveryNo);
+GO
+
+INSERT INTO ReturnRefunds(ReturnNo, OrderNo, BookCode, ReturnQuantity, ApplyReason, AuditStatus, InboundStatus, RefundAmount)
+SELECT v.ReturnNo, v.OrderNo, v.BookCode, v.ReturnQuantity, v.ApplyReason, v.AuditStatus, N'已入库', 0
+FROM (VALUES
+    (N'TH20260720003', N'DD20260720008', N'B002', 1, N'客户退回教材', N'已完成')
+) AS v(ReturnNo, OrderNo, BookCode, ReturnQuantity, ApplyReason, AuditStatus)
+WHERE NOT EXISTS (SELECT 1 FROM ReturnRefunds r WHERE r.ReturnNo = v.ReturnNo);
+GO
+
+INSERT INTO InventoryChecks(CheckNo, BookCode, BookName, SystemStock, ActualStock, CheckResult, CheckDate)
+SELECT v.CheckNo, b.BookCode, b.BookName, b.Stock, v.ActualStock, N'正常', v.CheckDate
+FROM (VALUES
+    (N'PD20260720004', N'B004', 49, CONVERT(DATE, GETDATE())),
+    (N'PD20260720005', N'B014', 27, CONVERT(DATE, GETDATE())),
+    (N'PD20260720006', N'B015', 16, CONVERT(DATE, GETDATE())),
+    (N'PD20260720007', N'B018', 4, CONVERT(DATE, GETDATE()))
+) AS v(CheckNo, BookCode, ActualStock, CheckDate)
+INNER JOIN Books b ON v.BookCode = b.BookCode
+WHERE NOT EXISTS (SELECT 1 FROM InventoryChecks c WHERE c.CheckNo = v.CheckNo);
+GO
+
+INSERT INTO BookPrices(BookCode, BookName, CostPrice, SalePrice, DiscountPrice, MemberPrice, EffectiveDate)
+SELECT b.BookCode, b.BookName, ROUND(b.Price * 0.70, 2), b.Price, ROUND(b.Price * 0.90, 2), ROUND(b.Price * 0.85, 2), CONVERT(DATE, GETDATE())
+FROM Books b
+WHERE NOT EXISTS (SELECT 1 FROM BookPrices p WHERE p.BookCode = b.BookCode);
+GO
+
+INSERT INTO BookShelfRecords(BookCode, BookName, SaleStatus, OnSaleTime)
+SELECT b.BookCode, b.BookName, CASE WHEN b.IsOnSale = 1 THEN N'正常销售' ELSE N'已下架' END, GETDATE()
+FROM Books b
+WHERE NOT EXISTS (SELECT 1 FROM BookShelfRecords s WHERE s.BookCode = b.BookCode);
+GO
+
+MERGE StockWarnings AS target
+USING (
+    SELECT
+        BookCode,
+        BookName,
+        Stock AS CurrentStock,
+        MinStock,
+        CASE
+            WHEN Stock < MinStock THEN N'建议补货 ' + CONVERT(NVARCHAR(20), MinStock - Stock + 10) + N' 本'
+            WHEN Stock = MinStock THEN N'库存刚好达到最低线'
+            ELSE N'库存正常'
+        END AS ReplenishmentAdvice
+    FROM Books
+) AS source
+ON target.BookCode = source.BookCode
+WHEN MATCHED THEN
+    UPDATE SET
+        BookName = source.BookName,
+        CurrentStock = source.CurrentStock,
+        MinStock = source.MinStock,
+        ReplenishmentAdvice = source.ReplenishmentAdvice,
+        WarningTime = GETDATE()
+WHEN NOT MATCHED THEN
+    INSERT (WarningNo, BookCode, BookName, CurrentStock, MinStock, ReplenishmentAdvice, WarningTime)
+    VALUES (N'YJ' + LEFT(REPLACE(CONVERT(NVARCHAR(36), NEWID()), N'-', N''), 28), source.BookCode, source.BookName, source.CurrentStock, source.MinStock, source.ReplenishmentAdvice, GETDATE());
+GO
+
+UPDATE p
+SET p.PurchaseStatus = CASE
+    WHEN ISNULL(total.InboundQuantity, 0) <= 0 THEN N'待入库'
+    WHEN ISNULL(total.InboundQuantity, 0) < p.Quantity THEN N'部分入库'
+    ELSE N'已入库'
+END
+FROM PurchaseOrders p
+OUTER APPLY (
+    SELECT SUM(r.InboundQuantity) AS InboundQuantity
+    FROM BookInboundRecords r
+    WHERE r.PurchaseNo = p.PurchaseNo
+) total;
+GO
+
+UPDATE BookShelfRecords
+SET
+    SaleStatus = CASE
+        WHEN SaleStatus IN (N'正常', N'正常销售') THEN N'正常销售'
+        WHEN SaleStatus = N'待处理' THEN N'暂不上架'
+        ELSE SaleStatus
+    END,
+    OffSaleReason = CASE WHEN SaleStatus IN (N'正常', N'正常销售') THEN NULL ELSE OffSaleReason END;
+GO
+
+UPDATE b
+SET b.IsOnSale = CASE WHEN s.SaleStatus = N'正常销售' THEN 1 ELSE 0 END
+FROM Books b
+INNER JOIN BookShelfRecords s ON b.BookCode = s.BookCode;
+GO
+
+UPDATE InventoryChecks
+SET CheckResult = CASE
+    WHEN ActualStock > SystemStock THEN N'实际库存多了 ' + CONVERT(NVARCHAR(20), ActualStock - SystemStock) + N' 本'
+    WHEN ActualStock < SystemStock THEN N'实际库存少了 ' + CONVERT(NVARCHAR(20), SystemStock - ActualStock) + N' 本'
+    ELSE N'实际数量和系统一致'
+END;
+GO
+
+IF OBJECT_ID(N'DF_InventoryChecks_CheckResult', N'D') IS NOT NULL
+BEGIN
+    ALTER TABLE InventoryChecks DROP CONSTRAINT DF_InventoryChecks_CheckResult;
+END
+GO
+ALTER TABLE InventoryChecks ADD CONSTRAINT DF_InventoryChecks_CheckResult DEFAULT (N'实际数量和系统一致') FOR CheckResult;
+GO
+
+INSERT INTO ShoppingCartItems(CartNo, CustomerCode, BookCode, BookName, Quantity, AddedTime)
+SELECT v.CartNo, v.CustomerCode, v.BookCode, b.BookName, v.Quantity, GETDATE()
+FROM (VALUES
+    (N'GW20260720003', N'C004', N'B016', 1),
+    (N'GW20260720004', N'C005', N'B017', 2),
+    (N'GW20260720005', N'C006', N'B011', 1),
+    (N'GW20260720006', N'C008', N'B018', 1),
+    (N'GW20260720007', N'C002', N'B014', 1)
+) AS v(CartNo, CustomerCode, BookCode, Quantity)
+INNER JOIN Books b ON v.BookCode = b.BookCode
+WHERE NOT EXISTS (SELECT 1 FROM ShoppingCartItems cart WHERE cart.CartNo = v.CartNo);
+GO
+
+UPDATE BookShelfRecords
+SET SaleStatus = N'暂不上架',
+    OffSaleReason = N'等待活动定价确认'
+WHERE BookCode = N'B003';
 GO

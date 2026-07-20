@@ -15,6 +15,10 @@ namespace WinFormsApp2
 
         public string[] Fields { get; }
 
+        public string EditTitle { get; private set; } = "信息填写";
+
+        public string ListTitle { get; private set; } = "查询结果";
+
         public string? QuerySql { get; set; }
 
         public string? TableName { get; private set; }
@@ -37,6 +41,13 @@ namespace WinFormsApp2
         public ModuleDefinition AsReadOnly()
         {
             IsReadOnly = true;
+            return this;
+        }
+
+        public ModuleDefinition WithTitles(string editTitle, string listTitle)
+        {
+            EditTitle = editTitle;
+            ListTitle = listTitle;
             return this;
         }
 
