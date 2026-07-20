@@ -8,6 +8,9 @@ SET ARITHABORT ON;
 SET NUMERIC_ROUNDABORT OFF;
 GO
 
+PRINT N'开始初始化 BookSalesDB 数据库...';
+GO
+
 IF DB_ID(N'BookSalesDB') IS NULL
 BEGIN
     CREATE DATABASE BookSalesDB;
@@ -647,35 +650,6 @@ BEGIN
     SELECT Id, 3, Price FROM Books WHERE BookName = N'Python 编程基础';
 END
 GO
-
-SELECT BookCode, ISBN, BookName, Author, Publisher, PublishedDate, Description
-FROM Books
-ORDER BY Id DESC;
-
-SELECT CategoryCode, CategoryName, Description
-FROM BookCategories
-ORDER BY Id;
-
-SELECT
-    s.Id,
-    b.BookName,
-    b.Author,
-    s.Quantity,
-    s.UnitPrice,
-    s.TotalAmount,
-    s.SaleTime
-FROM Sales s
-INNER JOIN Books b ON s.BookId = b.Id
-ORDER BY s.SaleTime DESC;
-
-SELECT
-    b.BookName,
-    SUM(s.Quantity) AS SaleQuantity,
-    SUM(s.TotalAmount) AS SaleAmount
-FROM Sales s
-INNER JOIN Books b ON s.BookId = b.Id
-GROUP BY b.BookName
-ORDER BY SaleAmount DESC;
 
 IF NOT EXISTS (
     SELECT 1
@@ -2043,4 +2017,13 @@ UPDATE BookShelfRecords
 SET SaleStatus = N'暂不上架',
     OffSaleReason = N'等待活动定价确认'
 WHERE BookCode = N'B003';
+GO
+
+PRINT N'BookSalesDB 初始化完成。';
+SELECT
+    (SELECT COUNT(*) FROM Books) AS BookCount,
+    (SELECT COUNT(*) FROM BookCategories) AS CategoryCount,
+    (SELECT COUNT(*) FROM Customers) AS CustomerCount,
+    (SELECT COUNT(*) FROM SaleOrders) AS OrderCount,
+    (SELECT COUNT(*) FROM ShoppingCartItems) AS CartItemCount;
 GO
