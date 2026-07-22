@@ -25,6 +25,9 @@ IF OBJECT_ID(N'trg_BookShelf_Cascade', N'TR') IS NOT NULL DROP TRIGGER trg_BookS
 IF OBJECT_ID(N'trg_BookInbound_Cascade', N'TR') IS NOT NULL DROP TRIGGER trg_BookInbound_Cascade;
 IF OBJECT_ID(N'trg_BookInbound_NameSync', N'TR') IS NOT NULL DROP TRIGGER trg_BookInbound_NameSync;
 IF OBJECT_ID(N'trg_BookOutbound_NameSync', N'TR') IS NOT NULL DROP TRIGGER trg_BookOutbound_NameSync;
+IF OBJECT_ID(N'trg_OrderDetails_Cascade', N'TR') IS NOT NULL DROP TRIGGER trg_OrderDetails_Cascade;
+IF OBJECT_ID(N'trg_Payments_Cascade', N'TR') IS NOT NULL DROP TRIGGER trg_Payments_Cascade;
+IF OBJECT_ID(N'trg_SaleOrders_Cascade', N'TR') IS NOT NULL DROP TRIGGER trg_SaleOrders_Cascade;
 GO
 
 IF OBJECT_ID(N'Users', N'U') IS NULL
@@ -623,8 +626,8 @@ BEGIN
     INSERT INTO SaleStatistics(StatisticType, StartDate, EndDate, SaleQuantity, SaleAmount)
     VALUES
     (N'日统计', CONVERT(DATE, GETDATE()), CONVERT(DATE, GETDATE()), 4, 268.00),
-    (N'月统计', DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1), CONVERT(DATE, GETDATE()), 18, 1186.00),
-    (N'年度统计', DATEFROMPARTS(YEAR(GETDATE()), 1, 1), CONVERT(DATE, GETDATE()), 96, 6520.00);
+    (N'月统计', DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0), CONVERT(DATE, GETDATE()), 18, 1186.00),
+    (N'年度统计', DATEADD(YEAR, DATEDIFF(YEAR, 0, GETDATE()), 0), CONVERT(DATE, GETDATE()), 96, 6520.00);
 END
 GO
 
@@ -893,6 +896,17 @@ BEGIN
         WHERE d.OrderNo = o.OrderNo
     ) total;
 
+    UPDATE p
+    SET p.PaymentAmount = o.OrderAmount
+    FROM Payments p
+    INNER JOIN SaleOrders o ON p.OrderNo = o.OrderNo
+    INNER JOIN (
+        SELECT OrderNo FROM inserted
+        UNION
+        SELECT OrderNo FROM deleted
+    ) changed ON p.OrderNo = changed.OrderNo
+    WHERE p.PaymentStatus <> N'已支付';
+
     DELETE r
     FROM CustomerPurchaseRecords r
     INNER JOIN (
@@ -922,15 +936,92 @@ GO
 
 CREATE TRIGGER trg_Payments_Cascade
 ON Payments
-AFTER INSERT, UPDATE
+AFTER INSERT, UPDATE, DELETE
 AS
 BEGIN
     SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
     UPDATE o
-    SET o.OrderStatus = CASE WHEN i.PaymentStatus = N'已支付' THEN N'待发货' ELSE o.OrderStatus END
+    SET o.OrderStatus = CASE
+            WHEN i.PaymentStatus = N'已支付' AND d.DeliveryStatus IN (N'已签收', N'已完成') THEN N'已完成'
+            WHEN i.PaymentStatus = N'已支付' AND d.DeliveryStatus IN (N'已发货', N'配送中') THEN N'已发货'
+            WHEN i.PaymentStatus = N'已支付' THEN N'待发货'
+            ELSE o.OrderStatus
+        END
     FROM SaleOrders o
-    INNER JOIN inserted i ON o.OrderNo = i.OrderNo;
+    INNER JOIN inserted i ON o.OrderNo = i.OrderNo
+    LEFT JOIN OrderDeliveries d ON o.OrderNo = d.OrderNo;
+
+    UPDATE d
+    SET d.DeliveryStatus = N'待发货'
+    FROM OrderDeliveries d
+    INNER JOIN inserted i ON d.OrderNo = i.OrderNo
+    WHERE i.PaymentStatus = N'已支付'
+      AND d.DeliveryStatus = N'未发货';
+
+    INSERT INTO OrderDeliveries(DeliveryNo, OrderNo, ReceiverAddress, LogisticsCompany, LogisticsNo, DeliveryTime, DeliveryStatus)
+    SELECT N'FH' + LEFT(REPLACE(CONVERT(NVARCHAR(36), NEWID()), N'-', N''), 28),
+           o.OrderNo,
+           ISNULL(c.Address, N'待补充'),
+           NULL,
+           NULL,
+           NULL,
+           CASE WHEN i.PaymentStatus = N'已支付' THEN N'待发货' ELSE N'未发货' END
+    FROM inserted i
+    INNER JOIN SaleOrders o ON i.OrderNo = o.OrderNo
+    LEFT JOIN Customers c ON o.CustomerCode = c.CustomerCode
+    WHERE o.OrderStatus NOT IN (N'已取消', N'已退货')
+      AND NOT EXISTS (SELECT 1 FROM OrderDeliveries d WHERE d.OrderNo = o.OrderNo);
+
+    UPDATE o
+    SET o.OrderStatus = N'待支付'
+    FROM SaleOrders o
+    INNER JOIN deleted d ON o.OrderNo = d.OrderNo
+    LEFT JOIN inserted i ON d.Id = i.Id
+    WHERE i.Id IS NULL
+      AND o.OrderStatus IN (N'待发货', N'已发货', N'已完成')
+      AND NOT EXISTS (
+          SELECT 1
+          FROM Payments p
+          WHERE p.OrderNo = o.OrderNo AND p.PaymentStatus = N'已支付'
+      );
+
+    INSERT INTO Payments(PaymentNo, OrderNo, PaymentMethod, PaymentAmount, PaymentTime, PaymentStatus, TransactionNo)
+    SELECT N'FK' + LEFT(REPLACE(CONVERT(NVARCHAR(36), NEWID()), N'-', N''), 28),
+           o.OrderNo,
+           N'未选择',
+           o.OrderAmount,
+           NULL,
+           N'未支付',
+           NULL
+    FROM SaleOrders o
+    INNER JOIN deleted d ON o.OrderNo = d.OrderNo
+    LEFT JOIN inserted i ON d.Id = i.Id
+    WHERE i.Id IS NULL
+      AND o.OrderStatus NOT IN (N'已取消', N'已退货')
+      AND NOT EXISTS (SELECT 1 FROM Payments p WHERE p.OrderNo = o.OrderNo);
+
+    INSERT INTO OrderDeliveries(DeliveryNo, OrderNo, ReceiverAddress, LogisticsCompany, LogisticsNo, DeliveryTime, DeliveryStatus)
+    SELECT N'FH' + LEFT(REPLACE(CONVERT(NVARCHAR(36), NEWID()), N'-', N''), 28),
+           o.OrderNo,
+           ISNULL(c.Address, N'待补充'),
+           NULL,
+           NULL,
+           NULL,
+           CASE
+               WHEN o.OrderStatus = N'已完成' THEN N'已签收'
+               WHEN o.OrderStatus = N'已发货' THEN N'已发货'
+               WHEN o.OrderStatus = N'待发货' THEN N'待发货'
+               ELSE N'未发货'
+           END
+    FROM SaleOrders o
+    INNER JOIN deleted d ON o.OrderNo = d.OrderNo
+    LEFT JOIN inserted i ON d.Id = i.Id
+    LEFT JOIN Customers c ON o.CustomerCode = c.CustomerCode
+    WHERE i.Id IS NULL
+      AND o.OrderStatus NOT IN (N'已取消', N'已退货')
+      AND NOT EXISTS (SELECT 1 FROM OrderDeliveries od WHERE od.OrderNo = o.OrderNo);
 END
 GO
 
@@ -1007,12 +1098,42 @@ AFTER INSERT, UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
     UPDATE o
     SET o.CustomerName = c.CustomerName
     FROM SaleOrders o
     INNER JOIN inserted i ON o.Id = i.Id
     INNER JOIN Customers c ON o.CustomerCode = c.CustomerCode;
+
+    INSERT INTO Payments(PaymentNo, OrderNo, PaymentMethod, PaymentAmount, PaymentTime, PaymentStatus, TransactionNo)
+    SELECT N'FK' + LEFT(REPLACE(CONVERT(NVARCHAR(36), NEWID()), N'-', N''), 28),
+           i.OrderNo,
+           N'未选择',
+           i.OrderAmount,
+           NULL,
+           N'未支付',
+           NULL
+    FROM inserted i
+    WHERE NOT EXISTS (SELECT 1 FROM Payments p WHERE p.OrderNo = i.OrderNo);
+
+    INSERT INTO OrderDeliveries(DeliveryNo, OrderNo, ReceiverAddress, LogisticsCompany, LogisticsNo, DeliveryTime, DeliveryStatus)
+    SELECT N'FH' + LEFT(REPLACE(CONVERT(NVARCHAR(36), NEWID()), N'-', N''), 28),
+           i.OrderNo,
+           ISNULL(c.Address, N'待补充'),
+           NULL,
+           NULL,
+           NULL,
+           CASE
+               WHEN i.OrderStatus = N'已完成' THEN N'已签收'
+               WHEN i.OrderStatus = N'已发货' THEN N'已发货'
+               WHEN i.OrderStatus = N'待发货' THEN N'待发货'
+               ELSE N'未发货'
+           END
+    FROM inserted i
+    LEFT JOIN Customers c ON i.CustomerCode = c.CustomerCode
+    WHERE i.OrderStatus NOT IN (N'已取消', N'已退货')
+      AND NOT EXISTS (SELECT 1 FROM OrderDeliveries d WHERE d.OrderNo = i.OrderNo);
 
     DELETE r
     FROM CustomerPurchaseRecords r
@@ -1043,6 +1164,7 @@ AFTER INSERT, UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
     UPDATE o
     SET o.OrderStatus =
@@ -1663,6 +1785,27 @@ BEGIN
     WHERE ISNULL(r.BookCode, N'') <> ISNULL(COALESCE(NULLIF(i.BookCode, N''), p.BookCode, r.BookCode), N'')
        OR ISNULL(r.BookName, N'') <> ISNULL(COALESCE(NULLIF(i.BookName, N''), p.BookName, b.BookName, r.BookName), N'');
 
+    IF EXISTS (
+        SELECT 1
+        FROM PurchaseOrders p
+        INNER JOIN (
+            SELECT PurchaseNo FROM inserted WHERE PurchaseNo IS NOT NULL
+            UNION
+            SELECT PurchaseNo FROM deleted WHERE PurchaseNo IS NOT NULL
+        ) changed ON p.PurchaseNo = changed.PurchaseNo
+        OUTER APPLY (
+            SELECT SUM(r.InboundQuantity) AS InboundQuantity
+            FROM BookInboundRecords r
+            WHERE r.PurchaseNo = p.PurchaseNo
+        ) total
+        WHERE ISNULL(total.InboundQuantity, 0) > p.Quantity
+    )
+    BEGIN
+        RAISERROR(N'入库数量不能超过采购数量。', 16, 1);
+        ROLLBACK TRANSACTION;
+        RETURN;
+    END;
+
     WITH changes AS (
         SELECT COALESCE(NULLIF(i.BookCode, N''), p.BookCode) AS BookCode, SUM(i.InboundQuantity) AS Quantity
         FROM inserted i
@@ -1718,6 +1861,7 @@ AFTER INSERT, UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
     UPDATE o
     SET o.OrderStatus =
@@ -1966,6 +2110,103 @@ OUTER APPLY (
     FROM BookInboundRecords r
     WHERE r.PurchaseNo = p.PurchaseNo
 ) total;
+GO
+
+INSERT INTO Payments(PaymentNo, OrderNo, PaymentMethod, PaymentAmount, PaymentTime, PaymentStatus, TransactionNo)
+SELECT N'FK' + LEFT(REPLACE(CONVERT(NVARCHAR(36), NEWID()), N'-', N''), 28),
+       o.OrderNo,
+       N'未选择',
+       o.OrderAmount,
+       NULL,
+       N'未支付',
+       NULL
+FROM SaleOrders o
+WHERE NOT EXISTS (SELECT 1 FROM Payments p WHERE p.OrderNo = o.OrderNo);
+GO
+
+INSERT INTO OrderDeliveries(DeliveryNo, OrderNo, ReceiverAddress, LogisticsCompany, LogisticsNo, DeliveryTime, DeliveryStatus)
+SELECT N'FH' + LEFT(REPLACE(CONVERT(NVARCHAR(36), NEWID()), N'-', N''), 28),
+       o.OrderNo,
+       ISNULL(c.Address, N'待补充'),
+       NULL,
+       NULL,
+       NULL,
+       CASE
+           WHEN o.OrderStatus = N'已完成' THEN N'已签收'
+           WHEN o.OrderStatus = N'已发货' THEN N'已发货'
+           WHEN o.OrderStatus = N'待发货' THEN N'待发货'
+           ELSE N'未发货'
+       END
+FROM SaleOrders o
+LEFT JOIN Customers c ON o.CustomerCode = c.CustomerCode
+WHERE o.OrderStatus NOT IN (N'已取消', N'已退货')
+  AND NOT EXISTS (SELECT 1 FROM OrderDeliveries d WHERE d.OrderNo = o.OrderNo);
+GO
+
+UPDATE d
+SET d.DeliveryStatus = CASE
+        WHEN o.OrderStatus = N'已完成' THEN N'已签收'
+        WHEN o.OrderStatus = N'已发货' THEN N'已发货'
+        ELSE d.DeliveryStatus
+    END,
+    d.DeliveryTime = CASE
+        WHEN d.DeliveryTime IS NULL AND o.OrderStatus IN (N'已发货', N'已完成') THEN GETDATE()
+        ELSE d.DeliveryTime
+    END
+FROM OrderDeliveries d
+INNER JOIN SaleOrders o ON d.OrderNo = o.OrderNo
+WHERE o.OrderStatus IN (N'已发货', N'已完成')
+  AND d.DeliveryStatus IN (N'未发货', N'待发货');
+GO
+
+UPDATE o
+SET o.OrderStatus = CASE
+        WHEN d.DeliveryStatus IN (N'已签收', N'已完成') THEN N'已完成'
+        WHEN d.DeliveryStatus IN (N'已发货', N'配送中') THEN N'已发货'
+        ELSE o.OrderStatus
+    END
+FROM SaleOrders o
+INNER JOIN OrderDeliveries d ON o.OrderNo = d.OrderNo
+WHERE o.OrderStatus NOT IN (N'已取消', N'已退货')
+  AND d.DeliveryStatus IN (N'已发货', N'配送中', N'已签收', N'已完成');
+GO
+
+INSERT INTO BookOutboundRecords(OutboundNo, BookCode, BookName, OutboundType, OutboundQuantity, OutboundTime, Reason)
+SELECT
+    N'XSCK' + CONVERT(NVARCHAR(12), od.Id) + N'-' + CONVERT(NVARCHAR(12), d.Id),
+    d.BookCode,
+    d.BookName,
+    N'销售出库',
+    d.Quantity,
+    ISNULL(od.DeliveryTime, GETDATE()),
+    N'订单 ' + od.OrderNo + N' 发货'
+FROM OrderDeliveries od
+INNER JOIN OrderDetails d ON od.OrderNo = d.OrderNo
+WHERE od.DeliveryStatus IN (N'已发货', N'配送中', N'已签收', N'已完成')
+  AND NOT EXISTS (
+      SELECT 1
+      FROM BookOutboundRecords r
+      WHERE r.OutboundNo = N'XSCK' + CONVERT(NVARCHAR(12), od.Id) + N'-' + CONVERT(NVARCHAR(12), d.Id)
+  );
+GO
+
+INSERT INTO BookInboundRecords(InboundNo, PurchaseNo, BookCode, BookName, InboundQuantity, InboundTime, OperatorName)
+SELECT
+    N'THRK' + CONVERT(NVARCHAR(20), rr.Id),
+    NULL,
+    rr.BookCode,
+    ISNULL(b.BookName, rr.BookCode),
+    rr.ReturnQuantity,
+    GETDATE(),
+    N'退货入库'
+FROM ReturnRefunds rr
+LEFT JOIN Books b ON rr.BookCode = b.BookCode
+WHERE rr.AuditStatus IN (N'已完成', N'已通过', N'正常')
+  AND NOT EXISTS (
+      SELECT 1
+      FROM BookInboundRecords r
+      WHERE r.InboundNo = N'THRK' + CONVERT(NVARCHAR(20), rr.Id)
+  );
 GO
 
 UPDATE BookShelfRecords

@@ -34,15 +34,15 @@ namespace WinFormsApp2
         private void InitializeComponent()
         {
             Dock = DockStyle.Fill;
-            BackColor = Color.White;
-            Font = new Font("Microsoft YaHei UI", 10F);
+            BackColor = UiTheme.Page;
+            Font = UiTheme.Regular(10F);
 
             TableLayoutPanel layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = module.CanWrite ? 2 : 1,
                 Padding = new Padding(18),
-                BackColor = Color.White
+                BackColor = UiTheme.Page
             };
             if (module.CanWrite)
             {
@@ -59,8 +59,9 @@ namespace WinFormsApp2
                 Panel editPanel = new Panel
                 {
                     Dock = DockStyle.Fill,
-                    Padding = new Padding(0, 0, 18, 0),
-                    BackColor = Color.White
+                    Padding = new Padding(18),
+                    BackColor = UiTheme.Surface,
+                    BorderStyle = BorderStyle.FixedSingle
                 };
                 editPanel.Controls.Add(fieldsPanel);
                 editPanel.Controls.Add(CreateActionPanel());
@@ -72,8 +73,9 @@ namespace WinFormsApp2
             Panel listPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = module.CanWrite ? new Padding(18, 0, 0, 0) : Padding.Empty,
-                BackColor = Color.White
+                Padding = new Padding(18),
+                BackColor = UiTheme.Surface,
+                BorderStyle = BorderStyle.FixedSingle
             };
             ConfigureGrid();
             listPanel.Controls.Add(grid);
@@ -84,7 +86,7 @@ namespace WinFormsApp2
             fieldsPanel.FlowDirection = FlowDirection.TopDown;
             fieldsPanel.WrapContents = false;
             fieldsPanel.AutoScroll = true;
-            fieldsPanel.BackColor = Color.White;
+            fieldsPanel.BackColor = UiTheme.Surface;
 
             layout.Controls.Add(listPanel, module.CanWrite ? 1 : 0, 0);
             Controls.Add(layout);
@@ -95,9 +97,9 @@ namespace WinFormsApp2
             return new Label
             {
                 Dock = DockStyle.Top,
-                Height = 58,
+                Height = 48,
                 Text = module.Description,
-                ForeColor = Color.FromArgb(80, 80, 80),
+                ForeColor = UiTheme.MutedText,
                 TextAlign = ContentAlignment.TopLeft
             };
         }
@@ -107,9 +109,10 @@ namespace WinFormsApp2
             return new Label
             {
                 Dock = DockStyle.Top,
-                Height = 34,
+                Height = 40,
                 Text = text,
-                Font = new Font("Microsoft YaHei UI", 12F, FontStyle.Bold),
+                Font = UiTheme.Bold(12F),
+                ForeColor = UiTheme.Text,
                 TextAlign = ContentAlignment.MiddleLeft
             };
         }
@@ -119,7 +122,7 @@ namespace WinFormsApp2
             TableLayoutPanel panel = new TableLayoutPanel
             {
                 Dock = DockStyle.Bottom,
-                Height = 98,
+                Height = 108,
                 ColumnCount = 2,
                 RowCount = 2,
                 Padding = new Padding(0, 8, 0, 0)
@@ -129,7 +132,7 @@ namespace WinFormsApp2
             panel.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
             panel.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
 
-            Button btnAdd = CreateActionButton("添加", btnAdd_Click);
+            Button btnAdd = CreateActionButton("添加", btnAdd_Click, true);
             Button btnUpdate = CreateActionButton("修改", btnUpdate_Click);
             Button btnDelete = CreateActionButton("删除", btnDelete_Click);
             Button btnClear = CreateActionButton("清空", btnClear_Click);
@@ -146,9 +149,9 @@ namespace WinFormsApp2
             Panel panel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 46,
-                Padding = new Padding(0, 4, 0, 8),
-                BackColor = Color.White
+                Height = 52,
+                Padding = new Padding(0, 8, 0, 10),
+                BackColor = UiTheme.Surface
             };
 
             FlowLayoutPanel row = new FlowLayoutPanel
@@ -156,7 +159,7 @@ namespace WinFormsApp2
                 Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
-                BackColor = Color.White
+                BackColor = UiTheme.Surface
             };
 
             searchBox.Width = 280;
@@ -164,6 +167,7 @@ namespace WinFormsApp2
             searchBox.Margin = new Padding(0, 4, 8, 0);
             searchBox.BorderStyle = BorderStyle.FixedSingle;
             searchBox.KeyDown += searchBox_KeyDown;
+            UiTheme.StyleInput(searchBox);
 
             Button btnSearch = CreateSearchButton("查询", btnSearch_Click);
             Button btnReset = CreateSearchButton("全部", btnReset_Click);
@@ -183,29 +187,28 @@ namespace WinFormsApp2
                 Height = 32,
                 Margin = new Padding(0, 4, 8, 0),
                 Text = text,
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.White,
-                ForeColor = Color.Black,
-                Font = new Font("Microsoft YaHei UI", 10F),
-                UseVisualStyleBackColor = false
             };
+            UiTheme.StyleSecondaryButton(button);
             button.Click += handler;
             return button;
         }
 
-        private static Button CreateActionButton(string text, EventHandler handler)
+        private static Button CreateActionButton(string text, EventHandler handler, bool primary = false)
         {
             Button button = new Button
             {
                 Dock = DockStyle.Fill,
                 Margin = new Padding(4),
-                Text = text,
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.White,
-                ForeColor = Color.Black,
-                Font = new Font("Microsoft YaHei UI", 10F),
-                UseVisualStyleBackColor = false
+                Text = text
             };
+            if (primary)
+            {
+                UiTheme.StylePrimaryButton(button);
+            }
+            else
+            {
+                UiTheme.StyleSecondaryButton(button);
+            }
             button.Click += handler;
             return button;
         }
@@ -220,17 +223,21 @@ namespace WinFormsApp2
             grid.MultiSelect = false;
             grid.ReadOnly = true;
             grid.RowHeadersVisible = false;
-            grid.BackgroundColor = Color.White;
-            grid.BorderStyle = BorderStyle.FixedSingle;
+            grid.BackgroundColor = UiTheme.Surface;
+            grid.BorderStyle = BorderStyle.None;
             grid.EnableHeadersVisualStyles = false;
-            grid.ColumnHeadersDefaultCellStyle.BackColor = Color.White;
-            grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.Black;
-            grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
-            grid.ColumnHeadersHeight = 36;
-            grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(230, 230, 230);
-            grid.DefaultCellStyle.SelectionForeColor = Color.Black;
-            grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 248, 248);
-            grid.RowTemplate.Height = 32;
+            grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+            grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(231, 238, 247);
+            grid.ColumnHeadersDefaultCellStyle.ForeColor = UiTheme.Text;
+            grid.ColumnHeadersDefaultCellStyle.Font = UiTheme.Bold(10F);
+            grid.ColumnHeadersHeight = 38;
+            grid.DefaultCellStyle.BackColor = UiTheme.Surface;
+            grid.DefaultCellStyle.ForeColor = UiTheme.Text;
+            grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(219, 234, 254);
+            grid.DefaultCellStyle.SelectionForeColor = UiTheme.Text;
+            grid.GridColor = UiTheme.Border;
+            grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 250, 252);
+            grid.RowTemplate.Height = 34;
             grid.CellClick += grid_CellClick;
         }
 
@@ -250,7 +257,7 @@ namespace WinFormsApp2
                     Width = 320,
                     Height = IsLongTextField(field) ? 104 : 68,
                     Margin = new Padding(0, 0, 0, 10),
-                    BackColor = Color.White
+                    BackColor = UiTheme.Surface
                 };
                 panel.Controls.Add(input);
                 panel.Controls.Add(new Label
@@ -258,6 +265,7 @@ namespace WinFormsApp2
                     Text = field,
                     Dock = DockStyle.Top,
                     Height = 24,
+                    ForeColor = UiTheme.MutedText,
                     TextAlign = ContentAlignment.MiddleLeft
                 });
 

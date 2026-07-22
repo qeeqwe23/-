@@ -18,23 +18,24 @@ namespace WinFormsApp2
             StartPosition = FormStartPosition.CenterParent;
             MinimumSize = new Size(1120, 720);
             Size = new Size(1240, 760);
-            Font = new Font("Microsoft YaHei UI", 10F);
-            BackColor = Color.White;
+            Font = UiTheme.Regular(10F);
+            BackColor = UiTheme.Page;
 
             Panel header = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 96,
-                BackColor = Color.White,
-                Padding = new Padding(28, 16, 28, 14)
+                Height = 82,
+                BackColor = UiTheme.Page,
+                Padding = new Padding(22, 12, 22, 10)
             };
 
             Label title = new Label
             {
                 Dock = DockStyle.Top,
-                Height = 42,
+                Height = 36,
                 Text = group.Title,
-                Font = new Font("Microsoft YaHei UI", 20F, FontStyle.Bold),
+                Font = UiTheme.Bold(18F),
+                ForeColor = UiTheme.Text,
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
@@ -42,7 +43,7 @@ namespace WinFormsApp2
             {
                 Dock = DockStyle.Fill,
                 Text = group.Summary,
-                ForeColor = Color.FromArgb(80, 80, 80),
+                ForeColor = UiTheme.MutedText,
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
@@ -51,7 +52,7 @@ namespace WinFormsApp2
 
             tabControl.Dock = DockStyle.Fill;
             tabControl.Padding = new Point(18, 8);
-            tabControl.Font = new Font("Microsoft YaHei UI", 10F);
+            tabControl.Font = UiTheme.Regular(10F);
             tabControl.SelectedIndexChanged += tabControl_SelectedIndexChanged;
 
             Controls.Add(tabControl);
@@ -69,7 +70,14 @@ namespace WinFormsApp2
                     BackColor = Color.White,
                     Padding = new Padding(0)
                 };
-                page.Controls.Add(new ModulePageControl(module));
+                if (ReferenceEquals(module, ModuleCatalog.SaleOrder))
+                {
+                    page.Controls.Add(new SalesOrderPageControl());
+                }
+                else
+                {
+                    page.Controls.Add(new ModulePageControl(module));
+                }
                 tabControl.TabPages.Add(page);
             }
         }
@@ -79,6 +87,10 @@ namespace WinFormsApp2
             if (tabControl.SelectedTab?.Controls.OfType<ModulePageControl>().FirstOrDefault() is ModulePageControl page)
             {
                 page.Reload();
+            }
+            else if (tabControl.SelectedTab?.Controls.OfType<SalesOrderPageControl>().FirstOrDefault() is SalesOrderPageControl orderPage)
+            {
+                orderPage.Reload();
             }
         }
     }

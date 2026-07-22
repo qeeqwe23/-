@@ -49,8 +49,8 @@ namespace WinFormsApp2
 
         public static readonly ModuleDefinition StockCheck = new ModuleDefinition(
             "库存盘点管理",
-            "比较系统库存和实际库存。",
-            "图书编号", "书名", "系统库存", "实际库存", "差异数量", "库存说明");
+            "查看系统库存和库存状态。",
+            "图书编号", "书名", "系统库存", "最低库存", "库存说明");
 
         public static readonly ModuleDefinition StockWarning = new ModuleDefinition(
             "库存预警管理",
@@ -121,9 +121,9 @@ namespace WinFormsApp2
 
         public static readonly ModuleGroupDefinition CustomerOrderGroup = new ModuleGroupDefinition(
             "客户订单",
-            "客户先维护购物车，再生成订单、明细、支付、发货和退货，购买记录由系统自动生成。",
+            "维护客户资料、销售订单、支付、发货和退货，订单明细在销售订单中统一处理。",
             "进入订单流程",
-            Customer, Cart, SaleOrder, OrderDetail, Payment, Delivery, ReturnRefund);
+            Customer, SaleOrder, Payment, Delivery, ReturnRefund);
 
         public static readonly ModuleGroupDefinition BusinessAnalysisGroup = new ModuleGroupDefinition(
             "经营分析",
@@ -209,8 +209,8 @@ namespace WinFormsApp2
 
             StockCheck.BindTable("InventoryChecks",
                 Field("图书编号", "BookCode"), Field("书名", "BookName", true),
-                Field("系统库存", "SystemStock", true), Field("实际库存", "ActualStock"),
-                Field("差异数量", "DifferenceQuantity", true), Field("库存说明", "CheckResult", true));
+                Field("系统库存", "SystemStock", true), Field("最低库存", "MinStock", true),
+                Field("库存说明", "CheckResult", true));
 
             StockWarning.BindTable("StockWarnings",
                 Field("图书编号", "BookCode"), Field("书名", "BookName"), Field("当前库存", "CurrentStock"),
@@ -238,7 +238,7 @@ namespace WinFormsApp2
 
             Delivery.BindTable("OrderDeliveries",
                 Field("订单编号", "OrderNo"), Field("收货地址", "ReceiverAddress"),
-                Field("物流单号", "LogisticsNo"), Field("发货状态", "DeliveryStatus"));
+                Field("物流公司", "LogisticsCompany"), Field("物流单号", "LogisticsNo"), Field("发货状态", "DeliveryStatus"));
 
             ReturnRefund.BindTable("ReturnRefunds",
                 Field("订单编号", "OrderNo"), Field("图书编号", "BookCode"), Field("退货数量", "ReturnQuantity"),
@@ -275,21 +275,13 @@ namespace WinFormsApp2
     b.BookCode AS N'图书编号',
     b.BookName AS N'书名',
     b.Stock AS N'系统库存',
-    ISNULL(lastCheck.ActualStock, b.Stock) AS N'实际库存',
-    ISNULL(lastCheck.ActualStock, b.Stock) - b.Stock AS N'差异数量',
+    b.MinStock AS N'最低库存',
     CASE
-        WHEN lastCheck.ActualStock IS NULL THEN N'还没有做过盘点'
-        WHEN lastCheck.ActualStock > b.Stock THEN N'实际库存多了 ' + CONVERT(NVARCHAR(20), lastCheck.ActualStock - b.Stock) + N' 本'
-        WHEN lastCheck.ActualStock < b.Stock THEN N'实际库存少了 ' + CONVERT(NVARCHAR(20), b.Stock - lastCheck.ActualStock) + N' 本'
-        ELSE N'实际数量和系统一致'
+        WHEN b.Stock < b.MinStock THEN N'库存不足，建议补货'
+        WHEN b.Stock = b.MinStock THEN N'库存刚好达到最低线'
+        ELSE N'库存正常'
     END AS N'库存说明'
 FROM Books b
-OUTER APPLY (
-    SELECT TOP 1 CheckNo, ActualStock
-    FROM InventoryChecks c
-    WHERE c.BookCode = b.BookCode
-    ORDER BY c.CheckDate DESC, c.Id DESC
-) lastCheck
 ORDER BY b.BookCode";
             StockWarning.QuerySql = @"SELECT
     b.Id,
@@ -309,7 +301,14 @@ ORDER BY CASE WHEN b.Stock < b.MinStock THEN 0 ELSE 1 END, b.BookCode";
             SaleOrder.QuerySql = "SELECT Id, OrderNo AS N'订单编号', CustomerCode AS N'客户编号', CustomerName AS N'客户姓名', OrderStatus AS N'订单状态', OrderAmount AS N'订单金额' FROM SaleOrders ORDER BY Id DESC";
             OrderDetail.QuerySql = "SELECT Id, OrderNo AS N'订单编号', BookCode AS N'图书编号', BookName AS N'书名', Quantity AS N'数量', UnitPrice AS N'单价', Subtotal AS N'小计' FROM OrderDetails ORDER BY Id DESC";
             Payment.QuerySql = "SELECT Id, OrderNo AS N'订单编号', PaymentMethod AS N'支付方式', PaymentAmount AS N'支付金额', PaymentStatus AS N'支付状态' FROM Payments ORDER BY Id DESC";
-            Delivery.QuerySql = "SELECT Id, OrderNo AS N'订单编号', ReceiverAddress AS N'收货地址', LogisticsNo AS N'物流单号', DeliveryStatus AS N'发货状态' FROM OrderDeliveries ORDER BY Id DESC";
+            Delivery.QuerySql = @"SELECT d.Id, d.OrderNo AS N'订单编号', o.CustomerName AS N'客户姓名',
+       o.OrderStatus AS N'订单状态', d.ReceiverAddress AS N'收货地址',
+       d.LogisticsCompany AS N'物流公司', d.LogisticsNo AS N'物流单号',
+       CONVERT(NVARCHAR(16), d.DeliveryTime, 120) AS N'发货时间',
+       d.DeliveryStatus AS N'发货状态'
+FROM OrderDeliveries d
+LEFT JOIN SaleOrders o ON d.OrderNo = o.OrderNo
+ORDER BY d.Id DESC";
             ReturnRefund.QuerySql = "SELECT Id, OrderNo AS N'订单编号', BookCode AS N'图书编号', ReturnQuantity AS N'退货数量', ApplyReason AS N'申请原因', AuditStatus AS N'审核状态', RefundAmount AS N'退款金额' FROM ReturnRefunds ORDER BY Id DESC";
             CustomerHistory.QuerySql = "SELECT Id, CustomerCode AS N'客户编号', CustomerName AS N'客户姓名', OrderNo AS N'订单编号', BookName AS N'图书名称', Quantity AS N'购买数量', PurchaseAmount AS N'购买金额' FROM CustomerPurchaseRecords ORDER BY Id DESC";
             SaleStatistics.QuerySql = @"

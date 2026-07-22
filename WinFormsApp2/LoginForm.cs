@@ -11,6 +11,10 @@ namespace WinFormsApp2
 
         private void LoginForm_Load(object sender, EventArgs e)
         {
+            UiTheme.StyleInput(txtUserName);
+            UiTheme.StyleInput(txtPassword);
+            UiTheme.StylePrimaryButton(btnLogin);
+            txtUserName.Focus();
         }
 
         private void btnLogin_Click(object sender, EventArgs e)
