@@ -85,7 +85,7 @@ namespace WinFormsApp2
         public static readonly ModuleDefinition Delivery = new ModuleDefinition(
             "订单发货管理",
             "维护订单收货和物流状态。",
-            "订单编号", "收货地址", "物流单号", "发货状态");
+            "订单编号", "收货地址", "物流公司", "物流单号", "发货状态");
 
         public static readonly ModuleDefinition ReturnRefund = new ModuleDefinition(
             "退货退款管理",
